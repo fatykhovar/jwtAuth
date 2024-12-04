@@ -2,16 +2,17 @@ package storage
 
 import (
 	"database/sql"
-	"log"
+	"fmt"
 	"time"
 
 	_ "github.com/lib/pq"
-	"github.com/satori/go.uuid"
+	uuid "github.com/satori/go.uuid"
 )
 
 type Storage interface {
-	CreateToken(string, string, string, time.Time) (error)
-	RefreshToken(string, string, string, time.Time) (error)
+	CreateToken(string, string, string, time.Time) error
+	RefreshToken(string, string,  string, time.Time) error
+	ValidateToken(string, string) (bool, error)
 }
 
 type PostgresStore struct {
@@ -34,10 +35,34 @@ func NewPostgresStore() (*PostgresStore, error) {
 	}, nil
 }
 
+func (s *PostgresStore) ValidateToken(user_id string, refresh_token string) (bool, error) {
+	user_id_uuid, err := uuid.FromString(user_id)
+	if err != nil {
+		return false, fmt.Errorf("error parsing user_id UUID: %w", err)
+	}
+
+	query := `select refresh_token from tokens
+			where user_id = $1`
+	rows, err := s.db.Query(query, user_id_uuid)
+	if err != nil {
+		return false, fmt.Errorf("failed to update token: %w", err)
+	}
+
+	var token string
+
+	for rows.Next() {
+		err = rows.Scan(token)
+	}
+	if err != nil {
+		return false, fmt.Errorf("failed to validate token: %w", err)
+	}
+	return token == refresh_token, nil
+}
+
 func (s *PostgresStore) RefreshToken(user_id string, refresh_token string, ip_address string, expires_in time.Time) error {
 	user_id_uuid, err := uuid.FromString(user_id)
-    if err != nil {
-        log.Fatalf("Error parsing user_id UUID: %v", err)
+	if err != nil {
+		return fmt.Errorf("error parsing user_id UUID: %w", err)
 	}
 
 	query := `update tokens
@@ -46,26 +71,31 @@ func (s *PostgresStore) RefreshToken(user_id string, refresh_token string, ip_ad
 
 	_, err = s.db.Exec(query, refresh_token, user_id_uuid)
 	if err != nil {
-		log.Fatalf("Failed to update token: %v", err)
+		return fmt.Errorf("failed to update token: %w", err)
 	}
-	return err
+	return nil
 }
 
-func (s *PostgresStore) CreateToken(user_id string, refresh_token string, ip_address string, expires_in time.Time) error {
+func (s *PostgresStore) CreateToken(
+		user_id string,
+		refresh_token string,
+		ip_address string,
+		expires_in time.Time,
+	) error {
 	user_id_uuid, err := uuid.FromString(user_id)
-    if err != nil {
-        log.Fatalf("Error parsing user_id UUID: %v", err)
+	if err != nil {
+		return fmt.Errorf("error parsing user_id UUID: %w", err)
 	}
 
 	query := `insert into tokens
-	    (user_id, refresh_token, ip_address, expires_in)
+	    (user_id, refresh_token, ip_address, email, expires_in)
 		values ($1, $2, $3, $4)`
 
 	_, err = s.db.Exec(query, user_id_uuid, refresh_token, ip_address, expires_in)
 	if err != nil {
-		log.Fatalf("Failed to insert new token: %v", err)
+		return fmt.Errorf("failed to insert new token: %w", err)
 	}
-	return err
+	return nil
 }
 
 func (s *PostgresStore) Init() error {
@@ -83,7 +113,7 @@ func (s *PostgresStore) createTokenTable() error {
 
 	_, err := s.db.Exec(query)
 	if err != nil {
-		log.Fatalf("Failed to create table: %v", err)
+		return fmt.Errorf("failed to create table: %w", err)
 	}
-	return err
+	return nil
 }

@@ -1,6 +1,7 @@
 package auth
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -34,6 +35,16 @@ type Token struct {
 	RefreshToken string
 }
 
+type RefreshTokenRequest struct {
+	RefreshToken []byte `json:"refresh_token"`
+	IPAddress    string `json:"ip_address"`
+}
+
+
+type ApiError struct {
+	Error string `json:"error"`
+}
+
 // Настройки JWT
 var (
 	secretKey       = []byte("secret-key")
@@ -63,9 +74,18 @@ func NewAPIServer(listenAddr string, store storage.Storage) *APIServer {
 }
 
 // Генерация JWT токена
-func generateToken(guid string, ttl time.Duration, ip string) (string, error) {
+func generateAccessToken(guid string, ttl time.Duration, ip string) (string, error) {
 	claims := jwt.MapClaims{
 		"guid":      guid,
+		"expiresAt": time.Now().Add(ttl),
+		"ip":        ip,
+	}
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
+	return token.SignedString(secretKey)
+}
+
+func generateRefreshToken(ttl time.Duration, ip string) (string, error) {
+	claims := jwt.MapClaims{
 		"expiresAt": time.Now().Add(ttl),
 		"ip":        ip,
 	}
@@ -84,17 +104,18 @@ func (s *APIServer) handleNewToken(w http.ResponseWriter, r *http.Request) error
 	ip := ip_address[0]
 
 	// Генерация Access и Refresh токенов
-	accessToken, err := generateToken(userID, accessTokenTTL, ip)
+	accessToken, err := generateAccessToken(userID, accessTokenTTL, ip)
 	if err != nil {
 		return fmt.Errorf(err.Error(), http.StatusInternalServerError)
 	}
 
-	refreshToken, err := generateToken(userID, refreshTokenTTL, ip)
+	refreshToken, err := generateRefreshToken(refreshTokenTTL, ip)
 	if err != nil {
 		return fmt.Errorf(err.Error(), http.StatusInternalServerError)
 	}
 
-	tokens := Token{AccessToken: accessToken, RefreshToken: refreshToken}
+	tokens := Token{AccessToken: accessToken,
+					RefreshToken: refreshToken}
 	s.store.CreateToken(userID, refreshToken, ip, time.Now().Add(refreshTokenTTL))
 	return WriteJSON(w, http.StatusOK, tokens)
 }
@@ -104,23 +125,37 @@ func (s *APIServer) handleRefreshToken(w http.ResponseWriter, r *http.Request) e
 	userID := vars["userID"]
 
 	if userID == "" {
-		return fmt.Errorf("UserID is required", http.StatusBadRequest)
+		return fmt.Errorf("userID is required", http.StatusBadRequest)
 	}
 
-	ip := ip_address[0]
+	var req RefreshTokenRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		return fmt.Errorf("error decoding request body: %w", err)
+    }
+	defer r.Body.Close()
+
+	encodedRefreshToken := base64.StdEncoding.EncodeToString(req.RefreshToken)
+	isValid, err := s.store.ValidateToken(userID, encodedRefreshToken)
+	if err != nil {
+		return fmt.Errorf("error decoding refresh token: %w", err)
+	}
+	
+	if !isValid{
+		return WriteJSON(w, http.StatusForbidden, ApiError{Error: "invalid refresh token"})
+	}
 
 	// Генерация Access и Refresh токенов
-	accessToken, err := generateToken(userID, accessTokenTTL, ip)
+	accessToken, err := generateAccessToken(userID, accessTokenTTL, req.IPAddress)
 	if err != nil {
 		return fmt.Errorf(err.Error(), http.StatusInternalServerError)
 	}
 
-	refreshToken, err := generateToken(userID, refreshTokenTTL, ip)
+	refreshToken, err := generateRefreshToken(refreshTokenTTL, req.IPAddress)
 	if err != nil {
 		return fmt.Errorf(err.Error(), http.StatusInternalServerError)
 	}
 
 	tokens := Token{AccessToken: accessToken, RefreshToken: refreshToken}
-	s.store.RefreshToken(userID, refreshToken, ip, time.Now().Add(refreshTokenTTL))
+	s.store.RefreshToken(userID, refreshToken, req.IPAddress, time.Now().Add(refreshTokenTTL))
 	return WriteJSON(w, http.StatusOK, tokens)
 }
