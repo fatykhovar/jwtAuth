@@ -1,6 +1,6 @@
 package auth
 
-var ip_address = [...]string{"113.186.103.196",
+var IP_address = [...]string{"113.186.103.196",
 							"114.183.102.150",
 							"50.102.230.234",
 							"131.191.200.69",
@@ -10,3 +10,5 @@ var ip_address = [...]string{"113.186.103.196",
 							"254.74.149.87",
 							"120.183.235.126",
 							"185.207.191.11"}
+
+var Email string = "fatykhovaregina0@gmail.com"

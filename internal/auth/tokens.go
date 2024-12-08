@@ -1,16 +1,17 @@
 package auth
 
 import (
-	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/smtp"
 	"time"
 
 	"github.com/fatykhovar/jwtAuth/internal/storage"
 	jwt "github.com/golang-jwt/jwt/v4"
-
+	"github.com/google/uuid"
 	"github.com/gorilla/mux"
+	"golang.org/x/crypto/bcrypt"
 )
 
 func WriteJSON(w http.ResponseWriter, status int, v any) error {
@@ -36,10 +37,9 @@ type Token struct {
 }
 
 type RefreshTokenRequest struct {
-	RefreshToken []byte `json:"refresh_token"`
+	RefreshToken string `json:"refresh_token"`
 	IPAddress    string `json:"ip_address"`
 }
-
 
 type ApiError struct {
 	Error string `json:"error"`
@@ -55,22 +55,19 @@ var (
 type APIServer struct {
 	listenAddr string
 	store      storage.Storage
-	jwtToken   Token
 }
-
-func (s *APIServer) Run() {
-	router := mux.NewRouter()
-	router.HandleFunc("/token/{userID}", makeHTTPHandleFunc(s.handleNewToken)).Methods("GET")
-	router.HandleFunc("/token/{userID}", makeHTTPHandleFunc(s.handleRefreshToken)).Methods("POST")
-
-	http.ListenAndServe(s.listenAddr, router)
-}
-
 func NewAPIServer(listenAddr string, store storage.Storage) *APIServer {
 	return &APIServer{
 		listenAddr: listenAddr,
 		store:      store,
 	}
+}
+func (s *APIServer) Run() {
+	router := mux.NewRouter()
+	router.HandleFunc("/token/{userID}", makeHTTPHandleFunc(s.handleGetToken)).Methods("GET")
+	router.HandleFunc("/token/{userID}", makeHTTPHandleFunc(s.handleRefreshToken)).Methods("POST")
+
+	http.ListenAndServe(s.listenAddr, router)
 }
 
 // Генерация JWT токена
@@ -93,30 +90,28 @@ func generateRefreshToken(ttl time.Duration, ip string) (string, error) {
 	return token.SignedString(secretKey)
 }
 
-func (s *APIServer) handleNewToken(w http.ResponseWriter, r *http.Request) error {
+func (s *APIServer) handleGetToken(w http.ResponseWriter, r *http.Request) error {
 	vars := mux.Vars(r)
 	userID := vars["userID"]
 
 	if userID == "" {
-		return fmt.Errorf("UserID is required", http.StatusBadRequest)
+		return fmt.Errorf("userID is required", http.StatusBadRequest)
 	}
 
-	ip := ip_address[0]
+	ip := IP_address[0]
+
+	user, err := s.store.GetUser(userID)
+	if err != nil {
+		return fmt.Errorf("error getting user: %w", err)
+	}
 
 	// Генерация Access и Refresh токенов
 	accessToken, err := generateAccessToken(userID, accessTokenTTL, ip)
 	if err != nil {
 		return fmt.Errorf(err.Error(), http.StatusInternalServerError)
 	}
-
-	refreshToken, err := generateRefreshToken(refreshTokenTTL, ip)
-	if err != nil {
-		return fmt.Errorf(err.Error(), http.StatusInternalServerError)
-	}
-
 	tokens := Token{AccessToken: accessToken,
-					RefreshToken: refreshToken}
-	s.store.CreateToken(userID, refreshToken, ip, time.Now().Add(refreshTokenTTL))
+			RefreshToken: user.RefreshToken}
 	return WriteJSON(w, http.StatusOK, tokens)
 }
 
@@ -131,19 +126,45 @@ func (s *APIServer) handleRefreshToken(w http.ResponseWriter, r *http.Request) e
 	var req RefreshTokenRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		return fmt.Errorf("error decoding request body: %w", err)
-    }
+	}
 	defer r.Body.Close()
 
-	encodedRefreshToken := base64.StdEncoding.EncodeToString(req.RefreshToken)
-	isValid, err := s.store.ValidateToken(userID, encodedRefreshToken)
+	user, err := s.store.GetUser(userID)
 	if err != nil {
-		return fmt.Errorf("error decoding refresh token: %w", err)
+		return fmt.Errorf("error getting user: %w", err)
 	}
-	
-	if !isValid{
+
+	hashedRefreshToken := user.RefreshToken
+
+	// валидация Refresh токена
+	err = bcrypt.CompareHashAndPassword([]byte(hashedRefreshToken), []byte(req.RefreshToken))
+	if err != nil {
 		return WriteJSON(w, http.StatusForbidden, ApiError{Error: "invalid refresh token"})
 	}
 
+	// парсинг claims
+	type RefreshTokenClaims struct {
+		expiresAt time.Duration
+		ip string
+		jwt.RegisteredClaims
+	} 
+	token, err := jwt.ParseWithClaims(req.RefreshToken, &RefreshTokenClaims{}, func(token *jwt.Token) (interface{}, error) {
+		return []byte(secretKey), nil
+	})
+	claims, ok := token.Claims.(*RefreshTokenClaims)
+	if !ok || !token.Valid {
+		return WriteJSON(w, http.StatusForbidden, ApiError{Error: "failed to get claims"})
+	}
+
+	if err := sendEmail(Email); err != nil {
+		fmt.Errorf(err.Error(), http.StatusInternalServerError)
+	}
+	// валидация ip
+	if claims.ip != user.IpAddress {
+		if err := sendEmail(Email); err != nil {
+			fmt.Errorf(err.Error(), http.StatusInternalServerError)
+		}
+	}
 	// Генерация Access и Refresh токенов
 	accessToken, err := generateAccessToken(userID, accessTokenTTL, req.IPAddress)
 	if err != nil {
@@ -158,4 +179,44 @@ func (s *APIServer) handleRefreshToken(w http.ResponseWriter, r *http.Request) e
 	tokens := Token{AccessToken: accessToken, RefreshToken: refreshToken}
 	s.store.RefreshToken(userID, refreshToken, req.IPAddress, time.Now().Add(refreshTokenTTL))
 	return WriteJSON(w, http.StatusOK, tokens)
+}
+
+func sendEmail(email string) error {
+	from := "testdev21234567@gmail.com"
+	password := "DevTest60"
+
+	to := []string{
+	   email,
+	}
+ 
+	// smtp сервер конфигурация
+	smtpHost := "smtp.gmail.com"
+	smtpPort := "587"
+ 
+	message := []byte("IP-адрес не действителен.")
+
+	auth := smtp.PlainAuth("", from, password, smtpHost)
+ 
+	err := smtp.SendMail(smtpHost + ":" + smtpPort, auth, from, to, message)
+	if err != nil {
+	   return fmt.Errorf("error sending email: %w", err)
+	}
+	return nil
+}
+
+func (s *APIServer) InsertTestData(ip string) error{
+	userID := uuid.New()
+
+	refreshToken, err := generateRefreshToken(refreshTokenTTL, ip)
+	if err != nil {
+		return fmt.Errorf(err.Error(), http.StatusInternalServerError)
+	}
+
+	encodedRefreshToken, err := bcrypt.GenerateFromPassword([]byte(refreshToken), bcrypt.DefaultCost)
+	if err != nil {
+		return fmt.Errorf(err.Error(), http.StatusInternalServerError)
+	}
+
+	s.store.CreateUser(userID.String(), string(encodedRefreshToken), ip, Email, time.Now().Add(refreshTokenTTL))
+	return nil
 }

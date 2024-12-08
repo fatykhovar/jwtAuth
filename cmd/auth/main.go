@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"log"
 
-	"github.com/fatykhovar/jwtAuth/internal/auth"
+	auth "github.com/fatykhovar/jwtAuth/internal/auth"
 	"github.com/fatykhovar/jwtAuth/internal/storage"
 	_ "github.com/lib/pq"
 )
@@ -21,7 +21,13 @@ func main() {
 		log.Fatal(err)
 	}
 	fmt.Printf("%+v", store)
+
 	// запуск сервера
 	server := auth.NewAPIServer(":3000", store)
 	server.Run()
+
+	i := 0
+	if err := server.InsertTestData(auth.IP_address[i]); err != nil {
+		log.Fatal(err)
+	}
 }
