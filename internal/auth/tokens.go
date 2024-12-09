@@ -182,8 +182,8 @@ func (s *APIServer) handleRefreshToken(w http.ResponseWriter, r *http.Request) e
 }
 
 func sendEmail(email string) error {
-	from := "testdev21234567@gmail.com"
-	password := "DevTest60"
+	from := "test"
+	password := "test"
 
 	to := []string{
 	   email,
