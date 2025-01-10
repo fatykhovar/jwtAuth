@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/fatykhovar/jwtAuth/internal/config"
 	_ "github.com/lib/pq"
 	uuid "github.com/satori/go.uuid"
 )
@@ -27,8 +28,15 @@ type User struct{
 	ExpiresIn time.Time
 }
 
-func NewPostgresStore() (*PostgresStore, error) {
-	connStr := "user=postgres dbname=postgres password=root sslmode=disable"
+func NewPostgresStore(cfg config.Config) (*PostgresStore, error) {
+	connStr := fmt.Sprintf(
+		"host=%s user=%s dbname=%s password=%s sslmode=%s",
+		cfg.Storage.Host,
+		cfg.Storage.User,
+	    cfg.Storage.DBname,
+        cfg.Storage.Password,
+        cfg.Storage.SSLMode,
+    	)
 	db, err := sql.Open("postgres", connStr)
 	if err != nil {
 		return nil, err

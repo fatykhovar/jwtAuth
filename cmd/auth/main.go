@@ -6,13 +6,16 @@ import (
 	"log"
 
 	auth "github.com/fatykhovar/jwtAuth/internal/auth"
+	"github.com/fatykhovar/jwtAuth/internal/config"
 	"github.com/fatykhovar/jwtAuth/internal/storage"
 	_ "github.com/lib/pq"
 )
 
 func main() {
+	cfg := config.MustLoad()
+
 	// подключение к бд
-	store, err := storage.NewPostgresStore()
+	store, err := storage.NewPostgresStore(cfg)
 	if err != nil {
 		log.Fatal(err)
 	}
