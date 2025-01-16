@@ -5,7 +5,9 @@ services:
     container_name: go-app
     image: fatykhreg/jwt-service:latest
     build: .
+    command: ./wait-for-postgres.sh go-db ./jwt_auth
     environment:
+      DB_PASSWORD: root
       CONFIG_PATH: ./config/prod.yaml
     ports:
       - "3000:3000"
@@ -14,6 +16,7 @@ services:
     networks:    
       - back-tier
   go-db:
+    restart: always
     container_name: go-db
     image: postgres:12
     environment:

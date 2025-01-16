@@ -1,6 +1,6 @@
 env: "prod"
 storage:
- host: "go_db"
+ host: "go-db"
  port: "5432"
  user: "postgres"
  password: "root"

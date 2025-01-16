@@ -1,24 +1,23 @@
 FROM golang:1.21-alpine AS builder
 
-WORKDIR /build
+RUN go version
+ENV GOPATH=/
 
-RUN apk --no-cache add make
+COPY ./ ./
 
-# Copy the source code
-COPY ["go.mod", "go.sum", "./"]
-RUN go mod download
+# install psql
+RUN apk update
+RUN apk add postgresql-client
 
-COPY . .
+# make wait-for-postgres.sh executable
+RUN chmod +x wait-for-postgres.sh
 
-# Build the Go app
-RUN go build -o ./bin/jwt_auth cmd/auth/main.go
-
-FROM alpine
-
-COPY --from=builder /build/bin/jwt_auth /
+# build go app
+# RUN go mod download
+RUN go build -o jwt_auth cmd/auth/main.go
 
 # #EXPOSE the port
 EXPOSE 3000
 
 # Run the executable
-CMD ["/jwt_auth"]
+CMD ["./jwt_auth"]
