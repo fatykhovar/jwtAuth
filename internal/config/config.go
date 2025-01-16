@@ -1,6 +1,7 @@
 package config
 
 import (
+	"fmt"
 	"log"
 	"os"
 
@@ -23,15 +24,27 @@ type Storage struct {
 }
 
 func MustLoad() Config {
-	configPath := os.Getenv("CONFIG_PATH")
-	if configPath == "" {
-		log.Fatal("CONFIG_PATH is not set")
-	}
+	// configPath := os.Getenv("CONFIG_PATH")
 
-	// check if file exists
-	if _, err := os.Stat(configPath); os.IsNotExist(err) {
-		log.Fatalf("config file does not exist: %s", configPath)
-	}
+	configPath := "./config/prod.yaml"
+	entries, err := os.ReadDir("./")
+    if err != nil {
+        log.Fatal(err)
+    }
+ 
+    for _, e := range entries {
+            fmt.Println(e.Name())
+    }
+
+
+	// if configPath == "" {
+	// 	log.Fatal("CONFIG_PATH is not set")
+	// }
+
+	// // check if file exists
+	// if _, err := os.Stat(configPath); os.IsNotExist(err) {
+	// 	log.Fatalf("config file does not exist: %s", configPath)
+	// }
 
 	var cfg Config
 

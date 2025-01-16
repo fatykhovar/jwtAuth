@@ -1,2 +1,5 @@
+build:
+	docker compose build 
+
 run:
-	@go run .\cmd\auth\main.go
+	docker compose up go-app  

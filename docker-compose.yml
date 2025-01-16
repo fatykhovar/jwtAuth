@@ -6,15 +6,15 @@ services:
     image: fatykhreg/jwt-service:latest
     build: .
     environment:
-      DATABASE_URL: "host=go_db user=postgres password=root dbname=postgres sslmode=disable"
+      CONFIG_PATH: ./config/prod.yaml
     ports:
       - "3000:3000"
     depends_on:
-      - go_db
+      - go-db
     networks:    
       - back-tier
-  go_db:
-    container_name: go_db
+  go-db:
+    container_name: go-db
     image: postgres:12
     environment:
       POSTGRES_PASSWORD: root
