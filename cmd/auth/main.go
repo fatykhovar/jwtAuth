@@ -1,13 +1,13 @@
 package main
 
 import (
-	// "database/sql"
-	"fmt"
 	"log"
 
 	auth "github.com/fatykhovar/jwtAuth/internal/auth"
 	"github.com/fatykhovar/jwtAuth/internal/config"
+	"github.com/fatykhovar/jwtAuth/internal/service"
 	"github.com/fatykhovar/jwtAuth/internal/storage"
+	"github.com/fatykhovar/jwtAuth/internal/storage/postgres"
 	_ "github.com/lib/pq"
 )
 
@@ -15,18 +15,15 @@ func main() {
 	cfg := config.MustLoad()
 
 	// подключение к бд
-	store, err := storage.NewPostgresStore(cfg)
+	db, err := postgres.NewPostgresDB(cfg)
 	if err != nil {
 		log.Fatal(err)
 	}
-	// создание таблицы токенов
-	if err := store.Init(); err != nil {
-		log.Fatal(err)
-	}
-	fmt.Printf("%+v", store)
 
+	storage := storage.NewStorage(db)
+	service := service.NewService(storage)
 	// запуск сервера
-	server := auth.NewAPIServer(":3000", store)
+	server := auth.NewAPIServer(":3000")
 	server.Run()
 
 	i := 0

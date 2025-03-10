@@ -2,139 +2,31 @@ package storage
 
 import (
 	"database/sql"
-	"fmt"
 	"time"
 
-	"github.com/fatykhovar/jwtAuth/internal/config"
+	"github.com/fatykhovar/jwtAuth/internal/domain"
+	token_postgres "github.com/fatykhovar/jwtAuth/internal/storage/postgres/token"
+	user_postgres "github.com/fatykhovar/jwtAuth/internal/storage/postgres/user"
 	_ "github.com/lib/pq"
-	uuid "github.com/satori/go.uuid"
 )
 
-type PostgresStore struct {
-	db *sql.DB
-}
-
-type Storage interface {
+type User interface {
 	CreateUser(string, string, string, string, time.Time) error
-	RefreshToken(string, string,  string, time.Time) error
-	GetUser(string) (User, error)
+	GetUser(string) (domain.User, error)
 }
 
-type User struct{
-	UserID string
-	RefreshToken string
-	Email string
-	IpAddress string
-	ExpiresIn time.Time
+type Token interface {
+	RefreshToken(string, string, string, time.Time) error
 }
 
-func NewPostgresStore(cfg config.Config) (*PostgresStore, error) {
-	connStr := fmt.Sprintf(
-		"host=%s user=%s dbname=%s password=%s sslmode=%s",
-		cfg.Storage.Host,
-		cfg.Storage.User,
-	    cfg.Storage.DBname,
-        cfg.Storage.Password,
-        cfg.Storage.SSLMode,
-    	)
-	db, err := sql.Open("postgres", connStr)
-	if err != nil {
-		return nil, err
-	}
-
-	if err := db.Ping(); err != nil {
-		return nil, err
-	}
-
-	return &PostgresStore{
-		db: db,
-	}, nil
+type Storage struct {
+	User
+	Token
 }
 
-func (s *PostgresStore) GetUser(user_id string) (User, error) {
-	user_id_uuid, err := uuid.FromString(user_id)
-	if err != nil {
-		return User{}, fmt.Errorf("error parsing user_id UUID: %w", err)
+func NewStorage(db *sql.DB) *Storage {
+	return &Storage{
+		User:  user_postgres.NewUserPostgres(db),
+		Token: token_postgres.NewTokenPostgres(db),
 	}
-
-	query := `select * from tokens
-			where user_id = $1`
-	rows, err := s.db.Query(query, user_id_uuid)
-	if err != nil {
-		return User{}, err
-	}
-
-	var user User
-
-	for rows.Next() {
-		err = rows.Scan(&user.UserID,
-						&user.RefreshToken,
-					    &user.IpAddress,
-						&user.Email,
-                        &user.ExpiresIn)
-	}
-	if err != nil {
-		return User{}, err
-	}
-	return user, nil
-}
-
-func (s *PostgresStore) RefreshToken(user_id string, refresh_token string, ip_address string, expires_in time.Time) error {
-	user_id_uuid, err := uuid.FromString(user_id)
-	if err != nil {
-		return fmt.Errorf("error parsing user_id UUID: %w", err)
-	}
-
-	query := `update tokens
-		set refresh_token = $1
-		where user_id = $2`
-
-	_, err = s.db.Exec(query, refresh_token, user_id_uuid)
-	if err != nil {
-		return fmt.Errorf("failed to update token: %w", err)
-	}
-	return nil
-}
-
-func (s *PostgresStore) CreateUser(
-		user_id string,
-		refresh_token string,
-		ip_address string,
-		email string,
-		expires_in time.Time,
-	) error {
-	user_id_uuid, err := uuid.FromString(user_id)
-	if err != nil {
-		return fmt.Errorf("error parsing user_id UUID: %w", err)
-	}
-
-	query := `insert into tokens
-	    (user_id, refresh_token, ip_address, email, expires_in)
-		values ($1, $2, $3, $4, $5)`
-
-	_, err = s.db.Exec(query, user_id_uuid, refresh_token, ip_address, email, expires_in)
-	if err != nil {
-		return fmt.Errorf("failed to insert new token: %w", err)
-	}
-	return nil
-}
-
-func (s *PostgresStore) Init() error {
-	return s.createTokenTable()
-}
-
-func (s *PostgresStore) createTokenTable() error {
-	query := `create table if not exists tokens (
-		user_id uuid NOT NULL, 
-		refresh_token text NOT NULL,
-		ip_address varchar(15) NOT NULL,
-		email varchar(255) NOT NULL,
-		expires_in timestamp NOT NULL
-	)`
-
-	_, err := s.db.Exec(query)
-	if err != nil {
-		return fmt.Errorf("failed to create table: %w", err)
-	}
-	return nil
 }
